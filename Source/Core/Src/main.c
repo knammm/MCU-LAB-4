@@ -84,7 +84,6 @@ uint32_t ADC_value = 0;
 char str[20];
 char data[MAX_BUFFER_SIZE];
 int index_data = 0;
-int first_flag = 0;
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	if (huart->Instance == USART2){
@@ -131,7 +130,6 @@ void uart_communication_fsm(){
 	if (token_flag){
 		if (strcmp(data,"!RST") == 0){
 			token_state = RST;
-			first_flag = 1;
 		}
 		else if (strcmp(data,"!OK") == 0) token_state = OK;
 		clear();
@@ -144,11 +142,7 @@ void uart_communication_fsm(){
 		HAL_ADC_Start(&hadc1);
 		ADC_value = HAL_ADC_GetValue(&hadc1);
 		HAL_ADC_Stop(&hadc1);
-		if(first_flag == 1){
-			first_flag = 0;
-			HAL_UART_Transmit(&huart2, (void*)str, sprintf(str,"\r\n!ADC=%ld#\r\n",ADC_value), 1000);
-		}
-		else HAL_UART_Transmit(&huart2, (void*)str, sprintf(str,"!ADC=%ld#\r\n",ADC_value), 1000);
+		HAL_UART_Transmit(&huart2, (void*)str, sprintf(str,"\r\n!ADC=%ld#\r\n",ADC_value), 1000);
 		setTimer(0,3000);
 		token_state = ADC;
 		break;
