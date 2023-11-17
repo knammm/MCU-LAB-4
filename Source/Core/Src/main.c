@@ -69,6 +69,7 @@ static void MX_TIM2_Init(void);
 #define READ 11
 #define ADC  12
 #define IDLE 13
+#define PROC 14
 
 #define RST 1
 #define OK 2
@@ -77,25 +78,15 @@ uint8_t temp = 0;
 uint8_t buffer[MAX_BUFFER_SIZE];
 uint8_t index_buffer = 0;
 uint8_t buffer_flag = 0;
-uint8_t token_flag = 0;
 int read_state = INIT;
-int token_state = 0;
+int communicate_state = IDLE;
 uint32_t ADC_value = 0;
 char str[20];
 char data[MAX_BUFFER_SIZE];
 int index_data = 0;
+int flagADC = 0;
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-	if (huart->Instance == USART2){
-		HAL_UART_Transmit(&huart2, &temp, 1, 50);
-		buffer[index_buffer++]=temp;
-		if (index_buffer == MAX_BUFFER_SIZE) index_buffer = 0;
-		buffer_flag = 1;
-		HAL_UART_Receive_IT(&huart2, &temp, 1);
-	}
-}
-
-void clear(){
+void clearMEM(){
 	memset(data,'\0',sizeof(data));
 	index_data=0;
 }
@@ -104,16 +95,16 @@ void command_parser_fsm() {
 	switch(read_state){
 	case INIT:
 		if (buffer[index_buffer-1] == '!') read_state = READ;
-		clear();
+		clearMEM();
 		data[index_data++] = buffer[index_buffer-1];
 		break;
 	case READ:
 		if (buffer[index_buffer-1] == '!'){
-			clear();
+			clearMEM();
 			data[index_data++] = buffer[index_buffer-1];
 		}
 		else if (buffer[index_buffer-1] == '#') {
-			token_flag = 1;
+			communicate_state = PROC;
 			read_state = INIT;
 		}
 		else {
@@ -127,36 +118,40 @@ void command_parser_fsm() {
 
 
 void uart_communication_fsm(){
-	if (token_flag){
-		if (strcmp(data,"!RST") == 0){
-			token_state = RST;
-		}
-		else if (strcmp(data,"!OK") == 0) token_state = OK;
-		clear();
-		token_flag = 0;
-	}
-	switch(token_state){
+	switch(communicate_state){
 	case IDLE:
 		break;
+
+	case PROC:
+		if (strcmp(data,"!RST") == 0) communicate_state = RST;
+		else if (strcmp(data,"!OK") == 0) communicate_state = OK;
+		else {
+			communicate_state = (flagADC) ? ADC : IDLE;
+			clearMEM();
+		}
+		break;
 	case RST:
+		flagADC = 1;
 		HAL_ADC_Start(&hadc1);
 		ADC_value = HAL_ADC_GetValue(&hadc1);
 		HAL_ADC_Stop(&hadc1);
-		HAL_UART_Transmit(&huart2, (void*)str, sprintf(str,"\r\n!ADC=%ld#\r\n",ADC_value), 1000);
+		HAL_UART_Transmit(&huart2, (void*)str, sprintf(str,"\r\n!ADC=%ld#",ADC_value), 1000);
 		setTimer(0,3000);
-		token_state = ADC;
+		communicate_state = ADC;
 		break;
 	case ADC:
+		flagADC = 1;
 		if (timerFlag[0] == 1){
-			clear();
-			token_state = RST;
+			clearMEM();
+			communicate_state = RST;
 		}
 		break;
 	case OK:
+		flagADC = 0;
 		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 		setTimer(0, 10);
 		timerFlag[0] = 0;
-		token_state = IDLE;
+		communicate_state = IDLE;
 	default:
 		break;
 	}
